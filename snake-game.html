@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Rắn Săn Mồi</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: radial-gradient(circle at 50% 10%, #213e50, #081116 65%); color: #f5fbf7; }
+    .game { width: min(92vw, 580px); padding: 22px; border: 1px solid #355364; border-radius: 25px; background: rgba(11, 27, 34, .91); box-shadow: 0 25px 80px #0009; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+    h1 { margin: 0; font-size: clamp(1.35rem, 5vw, 2rem); letter-spacing: .04em; color: #b8f78d; }
+    .score { text-align: right; font-weight: 800; font-variant-numeric: tabular-nums; color: #ffe289; }
+    .score small { display: block; color: #94abb5; font-size: .72rem; letter-spacing: .08em; }
+    .board-wrap { position: relative; }
+    canvas { display: block; width: 100%; aspect-ratio: 1; border-radius: 14px; background: #10232b; image-rendering: pixelated; }
+    .overlay { position: absolute; inset: 0; display: grid; place-items: center; padding: 30px; text-align: center; border-radius: 14px; background: #071217ad; opacity: 0; pointer-events: none; transition: opacity .18s; }
+    .overlay.show { opacity: 1; pointer-events: auto; }
+    .overlay p { margin: 0 0 15px; font-size: 1.12rem; font-weight: 700; }
+    button { appearance: none; border: 0; border-radius: 999px; cursor: pointer; padding: .72rem 1.05rem; background: #b8f78d; color: #102017; font: inherit; font-weight: 850; box-shadow: 0 4px 0 #70a354; }
+    button:active { transform: translateY(3px); box-shadow: 0 1px 0 #70a354; }
+    button:focus-visible { outline: 3px solid #ffe289; outline-offset: 3px; }
+    .controls { display: grid; grid-template-columns: repeat(3, 52px); grid-template-rows: repeat(2, 45px); justify-content: center; gap: 7px; margin-top: 17px; }
+    .controls button { padding: 0; font-size: 1.25rem; background: #1c3a45; color: #e8f8ef; box-shadow: 0 3px 0 #0c2028; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+    .controls button:nth-child(1) { grid-column: 2; } .controls button:nth-child(2) { grid-column: 1; grid-row: 2; } .controls button:nth-child(3) { grid-column: 2; grid-row: 2; } .controls button:nth-child(4) { grid-column: 3; grid-row: 2; }
+    .hint { margin: 13px 0 0; text-align: center; color: #9cb4bd; font-size: .82rem; }
+  </style>
+</head>
+<body>
+  <main class="game">
+    <header><h1>🐍 RẮN SĂN MỒI</h1><div class="score"><small id="game-status">SẴN SÀNG · ĐIỂM CAO</small><span id="score">0</span> · <span id="best">0</span></div></header>
+    <div class="board-wrap">
+      <canvas id="board" width="600" height="600" aria-label="Bàn chơi rắn săn mồi"></canvas>
+      <div class="overlay show" id="overlay"><div><p id="message">Dùng phím mũi tên hoặc WASD để bắt đầu</p><button id="start">Chơi ngay</button></div></div>
+    </div>
+    <div class="controls" aria-label="Điều khiển cảm ứng"><button data-dir="up" aria-label="Lên">↑</button><button data-dir="left" aria-label="Trái">←</button><button data-dir="down" aria-label="Xuống">↓</button><button data-dir="right" aria-label="Phải">→</button></div>
+    <p class="hint">Ăn trái cây để lớn lên · Không chạm tường hoặc chính mình</p>
+  </main>
+  <script>
+    const canvas = document.querySelector('#board'), ctx = canvas.getContext('2d');
+    const cells = 20, size = canvas.width / cells, scoreEl = document.querySelector('#score'), bestEl = document.querySelector('#best');
+    const overlay = document.querySelector('#overlay'), message = document.querySelector('#message'), start = document.querySelector('#start'), status = document.querySelector('#game-status');
+    // Một số trình duyệt nội bộ chặn localStorage với file://. Không để việc lưu điểm cao làm game dừng.
+    function readBest() { try { return Number(localStorage.getItem('snakeBest') || 0); } catch (_) { return 0; } }
+    function saveBest(value) { try { localStorage.setItem('snakeBest', String(value)); } catch (_) {} }
+    let snake, food, dir, nextDir, score, animationFrame, lastMoveAt = 0, speed = 360, playing = false, best = readBest();
+    bestEl.textContent = best;
+    const vectors = { up:[0,-1], down:[0,1], left:[-1,0], right:[1,0] };
+    function randomFood() { do { food = { x: Math.floor(Math.random()*cells), y: Math.floor(Math.random()*cells) }; } while (snake.some(p => p.x === food.x && p.y === food.y)); }
+    function reset() { snake = [{x:10,y:10},{x:9,y:10},{x:8,y:10}]; dir = [1,0]; nextDir = [1,0]; score = 0; scoreEl.textContent = score; randomFood(); draw(); }
+    function setDir(name) { const v = vectors[name]; if (!v || (v[0] === -dir[0] && v[1] === -dir[1])) return; nextDir = v; if (!playing) play(name); }
+    function play(firstDirection) { cancelAnimationFrame(animationFrame); reset(); if (firstDirection) dir = nextDir = vectors[firstDirection]; playing = true; speed = 360; lastMoveAt = 0; status.textContent = 'ĐANG CHƠI · ĐIỂM CAO'; overlay.classList.remove('show'); animationFrame = requestAnimationFrame(gameLoop); }
+    function gameLoop(now) { if (!playing) return; if (!lastMoveAt) lastMoveAt = now; if (now - lastMoveAt >= speed) { step(); lastMoveAt = now; } animationFrame = requestAnimationFrame(gameLoop); }
+    function end() { playing = false; cancelAnimationFrame(animationFrame); status.textContent = 'KẾT THÚC · ĐIỂM CAO'; if (score > best) { best = score; saveBest(best); bestEl.textContent = best; } message.textContent = `Game over! Bạn được ${score} điểm.`; start.textContent = 'Chơi lại'; overlay.classList.add('show'); }
+    function step() { dir = nextDir; const head = { x: snake[0].x + dir[0], y: snake[0].y + dir[1] }; const hit = head.x < 0 || head.y < 0 || head.x >= cells || head.y >= cells || snake.some(p => p.x === head.x && p.y === head.y); if (hit) return end(); snake.unshift(head); if (head.x === food.x && head.y === food.y) { score += 10; scoreEl.textContent = score; randomFood(); speed = Math.max(115, speed - 18); } else snake.pop(); draw(); }
+    function draw() { ctx.fillStyle = '#10232b'; ctx.fillRect(0,0,600,600); ctx.strokeStyle = '#18333b'; ctx.lineWidth = 1; for(let i=0;i<=cells;i++){ ctx.beginPath();ctx.moveTo(i*size,0);ctx.lineTo(i*size,600);ctx.stroke();ctx.beginPath();ctx.moveTo(0,i*size);ctx.lineTo(600,i*size);ctx.stroke(); } ctx.fillStyle='#ff6b61'; ctx.beginPath(); ctx.arc((food.x+.5)*size,(food.y+.5)*size,size*.29,0,Math.PI*2);ctx.fill(); ctx.fillStyle='#78d64b'; snake.forEach((p,i)=>{ ctx.fillStyle = i ? '#78d64b' : '#b8f78d'; ctx.fillRect(p.x*size+2,p.y*size+2,size-4,size-4); }); const h=snake[0]; ctx.fillStyle='#10232b'; ctx.fillRect((h.x+.32)*size,(h.y+.31)*size,4,4); ctx.fillRect((h.x+.64)*size,(h.y+.31)*size,4,4); }
+    document.addEventListener('keydown', e => { const keys = {ArrowUp:'up',w:'up',W:'up',ArrowDown:'down',s:'down',S:'down',ArrowLeft:'left',a:'left',A:'left',ArrowRight:'right',d:'right',D:'right'}; if(keys[e.key]) { e.preventDefault(); setDir(keys[e.key]); } if(e.key===' ' && !playing) play(); });
+    document.querySelectorAll('[data-dir]').forEach(b => {
+      const move = event => { event.preventDefault(); setDir(b.dataset.dir); };
+      b.addEventListener('pointerdown', move);
+      b.addEventListener('click', move);
+    });
+    start.addEventListener('pointerdown', event => { event.preventDefault(); play(); });
+    start.addEventListener('click', play);
+    reset();
+  </script>
+</body>
+</html>
